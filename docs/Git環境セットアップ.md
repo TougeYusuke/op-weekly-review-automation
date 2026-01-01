@@ -71,9 +71,13 @@ git commit -m "Initial commit: 週次レビュー自動化ツールの基本実�
 
 GitHubなどのリモートリポジトリを使用する場合：
 
+**推奨リポジトリ名:** `op-weekly-review-automation`
+
+詳細は [[GitHubリポジトリ名案|GitHubリポジトリ名案.md]] を参照してください。
+
 ```bash
 # リモートリポジトリを追加
-git remote add origin https://github.com/your-username/your-repo.git
+git remote add origin https://github.com/your-username/op-weekly-review-automation.git
 
 # ブランチ名をmainに変更（オプション）
 git branch -M main

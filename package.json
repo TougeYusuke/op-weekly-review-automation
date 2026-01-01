@@ -1,0 +1,26 @@
+{
+  "name": "weekly-review-automation",
+  "version": "1.0.0",
+  "description": "Operation Phoenixの週次レビュー（金曜日の作業）を自動化するツール",
+  "main": "main.js",
+  "scripts": {
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui"
+  },
+  "keywords": [
+    "gas",
+    "google-apps-script",
+    "automation",
+    "weekly-review"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/google-apps-script": "^2.0.8",
+    "@types/node": "^20.11.5",
+    "@vitest/ui": "^4.0.16",
+    "vitest": "^4.0.16"
+  }
+}
+

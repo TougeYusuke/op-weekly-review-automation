@@ -40,10 +40,13 @@ function runWeeklyReview() {
     // 4. 週次集計シートに出力
     outputWeeklySummary(spreadsheet, weeklyData);
 
-    // 5. レポートを生成（前週比を含む）
-    generateReport(spreadsheet, weeklyData, comparisonData);
+    // 5. トレンド分析を実行
+    const trendData = analyzeTrends(spreadsheet, 4);
 
-    // 6. 来週の計画テンプレートを生成
+    // 6. レポートを生成（前週比とトレンドを含む）
+    generateReport(spreadsheet, weeklyData, comparisonData, trendData);
+
+    // 7. 来週の計画テンプレートを生成
     generateNextWeekPlan(spreadsheet, weeklyData);
 
     Logger.log('週次レビューが完了しました');
@@ -216,8 +219,9 @@ function outputWeeklySummary(spreadsheet, weeklyData) {
  * @param {Spreadsheet} spreadsheet - スプレッドシートオブジェクト
  * @param {Object} weeklyData - 週次データ
  * @param {Object} comparisonData - 前週との比較データ（オプション）
+ * @param {Object} trendData - トレンド分析データ（オプション）
  */
-function generateReport(spreadsheet, weeklyData, comparisonData = null) {
+function generateReport(spreadsheet, weeklyData, comparisonData = null, trendData = null) {
   let reportSheet = spreadsheet.getSheetByName(SHEET_NAMES.REPORT);
 
   // シートが存在しない場合は作成
@@ -253,6 +257,13 @@ function generateReport(spreadsheet, weeklyData, comparisonData = null) {
     [''],
     ['作業時間: ' + weeklyData.workTime + '時間' + (comparisonData && comparisonData.hasPreviousData ? ' (前週比: ' + formatChangeRate(comparisonData.workTimeChange) + ')' : '')],
     [''],
+    (trendData && trendData.hasEnoughData ? [
+      ['## トレンド分析（過去' + trendData.weeksAnalyzed + '週間）'],
+      [''],
+      ['収益のトレンド: ' + formatTrend(trendData.revenueTrend)],
+      ['作業時間のトレンド: ' + formatTrend(trendData.workTimeTrend)],
+      ['']
+    ] : []),
     ['## 改善点'],
     [''],
     ['- [ ] 作業時間の無駄を確認'],
@@ -390,6 +401,228 @@ function compareWithPreviousWeek(currentWeekData, previousWeekData) {
   };
 }
 
+// ===== トレンド分析 =====
+
+/**
+ * 過去N週間のデータを取得
+ * @param {Spreadsheet} spreadsheet - スプレッドシートオブジェクト
+ * @param {number} weeks - 取得する週数（デフォルト: 4週間）
+ * @return {Array} 過去N週間のデータ配列
+ */
+function getPastWeeksData(spreadsheet, weeks = 4) {
+  const summarySheet = spreadsheet.getSheetByName(SHEET_NAMES.WEEKLY_SUMMARY);
+  if (!summarySheet) {
+    return [];
+  }
+
+  const data = summarySheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return []; // ヘッダーのみ
+  }
+
+  // ヘッダーのインデックスを取得
+  const headers = data[0];
+  const totalRevenueIndex = headers.indexOf('今週の合計収益');
+  const workTimeIndex = headers.indexOf('作業時間');
+  const noteArticlesIndex = headers.indexOf('Note記事数');
+  const wpArticlesIndex = headers.indexOf('WordPress記事数');
+
+  if (totalRevenueIndex === -1) {
+    return [];
+  }
+
+  // 最後のN週間のデータを取得（最新の週から古い順に）
+  const pastWeeksData = [];
+  const startIndex = Math.max(1, data.length - weeks); // ヘッダーを除く
+
+  for (let i = data.length - 1; i >= startIndex; i--) {
+    const row = data[i];
+    pastWeeksData.push({
+      revenue: row[totalRevenueIndex] || 0,
+      workTime: row[workTimeIndex] || 0,
+      noteArticles: row[noteArticlesIndex] || 0,
+      wpArticles: row[wpArticlesIndex] || 0,
+    });
+  }
+
+  return pastWeeksData.reverse(); // 古い順に並び替え
+}
+
+/**
+ * 収益のトレンドを分析
+ * @param {Array} revenueArray - 過去N週間の収益配列
+ * @return {string} トレンド（'increasing', 'decreasing', 'stable'）
+ */
+function analyzeRevenueTrend(revenueArray) {
+  if (revenueArray.length < 2) {
+    return 'stable';
+  }
+
+  // 前半と後半の平均を比較
+  const midPoint = Math.floor(revenueArray.length / 2);
+  const firstHalf = revenueArray.slice(0, midPoint);
+  const secondHalf = revenueArray.slice(midPoint);
+
+  const firstAvg = firstHalf.reduce((sum, data) => sum + (data.revenue || 0), 0) / firstHalf.length;
+  const secondAvg = secondHalf.reduce((sum, data) => sum + (data.revenue || 0), 0) / secondHalf.length;
+
+  const diff = secondAvg - firstAvg;
+  const threshold = firstAvg * 0.1; // 10%の変化を閾値とする
+
+  if (diff > threshold) {
+    return 'increasing';
+  } else if (diff < -threshold) {
+    return 'decreasing';
+  } else {
+    return 'stable';
+  }
+}
+
+/**
+ * 作業時間のトレンドを分析
+ * @param {Array} workTimeArray - 過去N週間の作業時間配列
+ * @return {string} トレンド（'increasing', 'decreasing', 'stable'）
+ */
+function analyzeWorkTimeTrend(workTimeArray) {
+  if (workTimeArray.length < 2) {
+    return 'stable';
+  }
+
+  const midPoint = Math.floor(workTimeArray.length / 2);
+  const firstHalf = workTimeArray.slice(0, midPoint);
+  const secondHalf = workTimeArray.slice(midPoint);
+
+  const firstAvg = firstHalf.reduce((sum, data) => sum + (data.workTime || 0), 0) / firstHalf.length;
+  const secondAvg = secondHalf.reduce((sum, data) => sum + (data.workTime || 0), 0) / secondHalf.length;
+
+  const diff = secondAvg - firstAvg;
+  const threshold = firstAvg * 0.1; // 10%の変化を閾値とする
+
+  if (diff > threshold) {
+    return 'increasing';
+  } else if (diff < -threshold) {
+    return 'decreasing';
+  } else {
+    return 'stable';
+  }
+}
+
+/**
+ * トレンドを日本語で表示
+ * @param {string} trend - トレンド（'increasing', 'decreasing', 'stable'）
+ * @return {string} 日本語のトレンド表示
+ */
+function formatTrend(trend) {
+  const trendMap = {
+    'increasing': '📈 増加傾向',
+    'decreasing': '📉 減少傾向',
+    'stable': '➡️ 横ばい'
+  };
+  return trendMap[trend] || '➡️ 横ばい';
+}
+
+/**
+ * トレンド分析を実行
+ * @param {Spreadsheet} spreadsheet - スプレッドシートオブジェクト
+ * @param {number} weeks - 分析する週数（デフォルト: 4週間）
+ * @return {Object} トレンド分析結果
+ */
+function analyzeTrends(spreadsheet, weeks = 4) {
+  const pastWeeksData = getPastWeeksData(spreadsheet, weeks);
+
+  if (pastWeeksData.length < 2) {
+    return {
+      hasEnoughData: false,
+      revenueTrend: 'stable',
+      workTimeTrend: 'stable',
+    };
+  }
+
+  const revenueArray = pastWeeksData.map(data => ({ revenue: data.revenue }));
+  const workTimeArray = pastWeeksData.map(data => ({ workTime: data.workTime }));
+
+  return {
+    hasEnoughData: true,
+    revenueTrend: analyzeRevenueTrend(revenueArray),
+    workTimeTrend: analyzeWorkTimeTrend(workTimeArray),
+    weeksAnalyzed: pastWeeksData.length,
+  };
+}
+
+// ===== 自動実行トリガーの設定 =====
+
+/**
+ * 週次レビューを自動実行するトリガーを設定
+ * 毎週金曜日の指定時刻に自動実行
+ * @param {number} hour - 実行時刻（時、0-23、デフォルト: 18時）
+ * @param {number} minute - 実行時刻（分、0-59、デフォルト: 0分）
+ */
+function setupWeeklyReviewTrigger(hour = 18, minute = 0) {
+  // 既存のトリガーを削除
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'runWeeklyReview') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  // 新しいトリガーを作成（毎週金曜日）
+  ScriptApp.newTrigger('runWeeklyReview')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.FRIDAY)
+    .atHour(hour)
+    .nearMinute(minute)
+    .create();
+
+  Logger.log('週次レビューの自動実行トリガーを設定しました（毎週金曜日 ' + hour + ':' + String(minute).padStart(2, '0') + '）');
+  SpreadsheetApp.getUi().alert('週次レビューの自動実行トリガーを設定しました！\n毎週金曜日 ' + hour + ':' + String(minute).padStart(2, '0') + ' に自動実行されます。');
+}
+
+/**
+ * 週次レビューの自動実行トリガーを削除
+ */
+function deleteWeeklyReviewTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let deletedCount = 0;
+
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'runWeeklyReview') {
+      ScriptApp.deleteTrigger(trigger);
+      deletedCount++;
+    }
+  });
+
+  if (deletedCount > 0) {
+    Logger.log('週次レビューの自動実行トリガーを削除しました（' + deletedCount + '件）');
+    SpreadsheetApp.getUi().alert('週次レビューの自動実行トリガーを削除しました（' + deletedCount + '件）');
+  } else {
+    Logger.log('削除するトリガーが見つかりませんでした');
+    SpreadsheetApp.getUi().alert('削除するトリガーが見つかりませんでした');
+  }
+}
+
+/**
+ * 現在設定されているトリガーを確認
+ */
+function checkTriggers() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const weeklyReviewTriggers = triggers.filter(trigger => trigger.getHandlerFunction() === 'runWeeklyReview');
+
+  if (weeklyReviewTriggers.length === 0) {
+    Logger.log('週次レビューの自動実行トリガーは設定されていません');
+    SpreadsheetApp.getUi().alert('週次レビューの自動実行トリガーは設定されていません');
+    return;
+  }
+
+  let message = '設定されているトリガー:\n';
+  weeklyReviewTriggers.forEach((trigger, index) => {
+    message += (index + 1) + '. ' + trigger.getHandlerFunction() + '\n';
+  });
+
+  Logger.log(message);
+  SpreadsheetApp.getUi().alert(message);
+}
+
 // ===== 目標達成率の計算 =====
 
 /**
@@ -505,7 +738,12 @@ if (typeof module !== 'undefined' && module.exports) {
     getPreviousWeekData,
     calculateChangeRate,
     formatChangeRate,
-    compareWithPreviousWeek
+    compareWithPreviousWeek,
+    getPastWeeksData,
+    analyzeRevenueTrend,
+    analyzeWorkTimeTrend,
+    formatTrend,
+    analyzeTrends
   };
 }
 

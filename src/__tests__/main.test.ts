@@ -566,3 +566,217 @@ describe('compareWithPreviousWeek', () => {
   });
 });
 
+describe('analyzeRevenueTrend', () => {
+  it('増加傾向を正しく判定する', () => {
+    const revenueArray = [
+      { revenue: 10000 },
+      { revenue: 12000 },
+      { revenue: 14000 },
+      { revenue: 16000 },
+    ];
+    
+    const result = gasFunctions.analyzeRevenueTrend(revenueArray);
+    expect(result).toBe('increasing');
+  });
+
+  it('減少傾向を正しく判定する', () => {
+    const revenueArray = [
+      { revenue: 16000 },
+      { revenue: 14000 },
+      { revenue: 12000 },
+      { revenue: 10000 },
+    ];
+    
+    const result = gasFunctions.analyzeRevenueTrend(revenueArray);
+    expect(result).toBe('decreasing');
+  });
+
+  it('横ばいを正しく判定する', () => {
+    const revenueArray = [
+      { revenue: 10000 },
+      { revenue: 10500 },
+      { revenue: 9500 },
+      { revenue: 10000 },
+    ];
+    
+    const result = gasFunctions.analyzeRevenueTrend(revenueArray);
+    expect(result).toBe('stable');
+  });
+
+  it('データが少ない場合、stableを返す', () => {
+    expect(gasFunctions.analyzeRevenueTrend([{ revenue: 10000 }])).toBe('stable');
+    expect(gasFunctions.analyzeRevenueTrend([])).toBe('stable');
+  });
+});
+
+describe('analyzeWorkTimeTrend', () => {
+  it('増加傾向を正しく判定する', () => {
+    const workTimeArray = [
+      { workTime: 10 },
+      { workTime: 12 },
+      { workTime: 14 },
+      { workTime: 16 },
+    ];
+    
+    const result = gasFunctions.analyzeWorkTimeTrend(workTimeArray);
+    expect(result).toBe('increasing');
+  });
+
+  it('減少傾向を正しく判定する', () => {
+    const workTimeArray = [
+      { workTime: 16 },
+      { workTime: 14 },
+      { workTime: 12 },
+      { workTime: 10 },
+    ];
+    
+    const result = gasFunctions.analyzeWorkTimeTrend(workTimeArray);
+    expect(result).toBe('decreasing');
+  });
+
+  it('横ばいを正しく判定する', () => {
+    const workTimeArray = [
+      { workTime: 15 },
+      { workTime: 16 },
+      { workTime: 14 },
+      { workTime: 15 },
+    ];
+    
+    const result = gasFunctions.analyzeWorkTimeTrend(workTimeArray);
+    expect(result).toBe('stable');
+  });
+});
+
+describe('formatTrend', () => {
+  it('トレンドを日本語で正しく表示する', () => {
+    expect(gasFunctions.formatTrend('increasing')).toBe('📈 増加傾向');
+    expect(gasFunctions.formatTrend('decreasing')).toBe('📉 減少傾向');
+    expect(gasFunctions.formatTrend('stable')).toBe('➡️ 横ばい');
+    expect(gasFunctions.formatTrend('unknown')).toBe('➡️ 横ばい'); // 未知の値の場合
+  });
+});
+
+describe('getPastWeeksData', () => {
+  it('過去N週間のデータを正しく取得する', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    // テストデータを設定（4週間分のデータ）
+    const mockData = [
+      ['週開始日', '週終了日', 'Note記事数', 'WordPress記事数', 'GASテンプレート数', 'Note有料記事収益', 'WordPressアフィリエイト収益', 'GAS販売収益', '今週の合計収益', '累計収益', '目標までの残り', '作業時間'],
+      ['2026-01-01', '2026-01-07', 2, 2, 0, 6000, 9000, 0, 15000, 50000, 30000, 15],
+      ['2026-01-08', '2026-01-14', 3, 3, 1, 8000, 12000, 0, 20000, 70000, 10000, 18],
+      ['2026-01-15', '2026-01-21', 2, 2, 0, 7000, 11000, 0, 18000, 88000, -8000, 16],
+      ['2026-01-22', '2026-01-28', 3, 3, 1, 9000, 13000, 0, 22000, 110000, -30000, 20],
+    ];
+    
+    (mockSheet.getDataRange as any).mockReturnValue({
+      getValues: () => mockData,
+    });
+    
+    const result = gasFunctions.getPastWeeksData(mockSpreadsheet, 4);
+    
+    expect(result).toHaveLength(4);
+    expect(result[0].revenue).toBe(15000);
+    expect(result[1].revenue).toBe(20000);
+    expect(result[2].revenue).toBe(18000);
+    expect(result[3].revenue).toBe(22000);
+  });
+
+  it('シートが存在しない場合、空配列を返す', () => {
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => null),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    const result = gasFunctions.getPastWeeksData(mockSpreadsheet, 4);
+    
+    expect(result).toEqual([]);
+  });
+
+  it('データが少ない場合、存在するデータのみを返す', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    // テストデータを設定（2週間分のデータのみ）
+    const mockData = [
+      ['週開始日', '週終了日', 'Note記事数', 'WordPress記事数', 'GASテンプレート数', 'Note有料記事収益', 'WordPressアフィリエイト収益', 'GAS販売収益', '今週の合計収益', '累計収益', '目標までの残り', '作業時間'],
+      ['2026-01-01', '2026-01-07', 2, 2, 0, 6000, 9000, 0, 15000, 50000, 30000, 15],
+      ['2026-01-08', '2026-01-14', 3, 3, 1, 8000, 12000, 0, 20000, 70000, 10000, 18],
+    ];
+    
+    (mockSheet.getDataRange as any).mockReturnValue({
+      getValues: () => mockData,
+    });
+    
+    const result = gasFunctions.getPastWeeksData(mockSpreadsheet, 4);
+    
+    expect(result).toHaveLength(2); // 2週間分のみ
+  });
+});
+
+describe('analyzeTrends', () => {
+  it('トレンド分析を正しく実行する', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    // テストデータを設定（増加傾向のデータ）
+    const mockData = [
+      ['週開始日', '週終了日', 'Note記事数', 'WordPress記事数', 'GASテンプレート数', 'Note有料記事収益', 'WordPressアフィリエイト収益', 'GAS販売収益', '今週の合計収益', '累計収益', '目標までの残り', '作業時間'],
+      ['2026-01-01', '2026-01-07', 2, 2, 0, 6000, 9000, 0, 10000, 50000, 30000, 10],
+      ['2026-01-08', '2026-01-14', 3, 3, 1, 8000, 12000, 0, 12000, 62000, 18000, 12],
+      ['2026-01-15', '2026-01-21', 2, 2, 0, 7000, 11000, 0, 14000, 76000, 4000, 14],
+      ['2026-01-22', '2026-01-28', 3, 3, 1, 9000, 13000, 0, 16000, 92000, -12000, 16],
+    ];
+    
+    (mockSheet.getDataRange as any).mockReturnValue({
+      getValues: () => mockData,
+    });
+    
+    const result = gasFunctions.analyzeTrends(mockSpreadsheet, 4);
+    
+    expect(result.hasEnoughData).toBe(true);
+    expect(result.weeksAnalyzed).toBe(4);
+    expect(result.revenueTrend).toBe('increasing');
+    expect(result.workTimeTrend).toBe('increasing');
+  });
+
+  it('データが少ない場合、stableを返す', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    // テストデータを設定（1週間分のデータのみ）
+    const mockData = [
+      ['週開始日', '週終了日', 'Note記事数', 'WordPress記事数', 'GASテンプレート数', 'Note有料記事収益', 'WordPressアフィリエイト収益', 'GAS販売収益', '今週の合計収益', '累計収益', '目標までの残り', '作業時間'],
+      ['2026-01-01', '2026-01-07', 2, 2, 0, 6000, 9000, 0, 15000, 50000, 30000, 15],
+    ];
+    
+    (mockSheet.getDataRange as any).mockReturnValue({
+      getValues: () => mockData,
+    });
+    
+    const result = gasFunctions.analyzeTrends(mockSpreadsheet, 4);
+    
+    expect(result.hasEnoughData).toBe(false);
+    expect(result.revenueTrend).toBe('stable');
+    expect(result.workTimeTrend).toBe('stable');
+  });
+});
+

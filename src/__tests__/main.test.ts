@@ -186,6 +186,47 @@ describe('generateReport', () => {
     // getRangeが複数回呼ばれることを確認（setValues用とsetFontSize/setFontWeight用）
     expect(mockSheet.getRange).toHaveBeenCalledTimes(2);
   });
+
+  it('前週比を含むレポートを正しく生成する', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => null),
+      insertSheet: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    const weeklyData = {
+      weekStart: new Date('2026-01-08'),
+      weekEnd: new Date('2026-01-14'),
+      noteArticles: 3,
+      wpArticles: 3,
+      gasTemplates: 1,
+      noteRevenue: 8000,
+      wpRevenue: 12000,
+      gasRevenue: 0,
+      totalRevenue: 20000,
+      cumulativeRevenue: 70000,
+      remainingRevenue: 10000,
+      workTime: 18,
+    };
+
+    const comparisonData = {
+      hasPreviousData: true,
+      noteArticlesChange: 50,
+      wpArticlesChange: 50,
+      gasTemplatesChange: 100,
+      revenueChange: 33.33,
+      workTimeChange: 20,
+    };
+    
+    gasFunctions.generateReport(mockSpreadsheet, weeklyData, comparisonData);
+    
+    // シートが作成されたことを確認
+    expect(mockSpreadsheet.insertSheet).toHaveBeenCalledWith('レポート');
+    // getRangeが呼ばれたことを確認
+    expect(mockSheet.getRange).toHaveBeenCalled();
+  });
 });
 
 describe('generateNextWeekPlan', () => {
@@ -330,6 +371,198 @@ describe('calculateWeeklyAchievementRates', () => {
     expect(result.wpArticlesRate).toBe(0); // 目標未設定
     expect(result.revenueRate).toBe(75);
     expect(result.workTimeRate).toBe(0); // 目標未設定
+  });
+});
+
+describe('calculateChangeRate', () => {
+  it('前週より増加した場合、正の値を返す', () => {
+    expect(gasFunctions.calculateChangeRate(110, 100)).toBe(10); // +10%
+    expect(gasFunctions.calculateChangeRate(150, 100)).toBe(50); // +50%
+  });
+
+  it('前週より減少した場合、負の値を返す', () => {
+    expect(gasFunctions.calculateChangeRate(90, 100)).toBe(-10); // -10%
+    expect(gasFunctions.calculateChangeRate(50, 100)).toBe(-50); // -50%
+  });
+
+  it('前週と同じ場合、0%を返す', () => {
+    expect(gasFunctions.calculateChangeRate(100, 100)).toBe(0);
+    expect(gasFunctions.calculateChangeRate(50, 50)).toBe(0);
+  });
+
+  it('前週が0の場合、今週が0より大きければ100%を返す', () => {
+    expect(gasFunctions.calculateChangeRate(100, 0)).toBe(100);
+    expect(gasFunctions.calculateChangeRate(50, 0)).toBe(100);
+  });
+
+  it('前週が0で今週も0の場合、0%を返す', () => {
+    expect(gasFunctions.calculateChangeRate(0, 0)).toBe(0);
+  });
+
+  it('小数点第2位まで正確に計算する', () => {
+    expect(gasFunctions.calculateChangeRate(33.33, 100)).toBe(-66.67);
+    expect(gasFunctions.calculateChangeRate(133.33, 100)).toBe(33.33);
+  });
+});
+
+describe('formatChangeRate', () => {
+  it('正の値の場合、+記号を付ける', () => {
+    expect(gasFunctions.formatChangeRate(10)).toBe('+10%');
+    expect(gasFunctions.formatChangeRate(50)).toBe('+50%');
+    expect(gasFunctions.formatChangeRate(0.5)).toBe('+0.5%');
+  });
+
+  it('負の値の場合、-記号を付ける', () => {
+    expect(gasFunctions.formatChangeRate(-10)).toBe('-10%');
+    expect(gasFunctions.formatChangeRate(-50)).toBe('-50%');
+    expect(gasFunctions.formatChangeRate(-0.5)).toBe('-0.5%');
+  });
+
+  it('0の場合、0%を返す', () => {
+    expect(gasFunctions.formatChangeRate(0)).toBe('0%');
+  });
+});
+
+describe('getPreviousWeekData', () => {
+  it('前週のデータを正しく取得する', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    // テストデータを設定（2週間分のデータ）
+    const currentWeekStart = new Date('2026-01-08'); // 今週の開始日（月曜日）
+    const previousWeekStart = new Date('2026-01-01'); // 前週の開始日
+    
+    const mockData = [
+      ['週開始日', '週終了日', 'Note記事数', 'WordPress記事数', 'GASテンプレート数', 'Note有料記事収益', 'WordPressアフィリエイト収益', 'GAS販売収益', '今週の合計収益', '累計収益', '目標までの残り', '作業時間'],
+      [previousWeekStart, '2026-01-07', 2, 2, 0, 6000, 9000, 0, 15000, 50000, 30000, 15],
+      [currentWeekStart, '2026-01-14', 3, 3, 1, 8000, 12000, 0, 20000, 70000, 10000, 18],
+    ];
+    
+    (mockSheet.getDataRange as any).mockReturnValue({
+      getValues: () => mockData,
+    });
+    
+    const result = gasFunctions.getPreviousWeekData(mockSpreadsheet, currentWeekStart);
+    
+    expect(result).toBeDefined();
+    expect(result.noteArticles).toBe(2);
+    expect(result.wpArticles).toBe(2);
+    expect(result.totalRevenue).toBe(15000);
+    expect(result.workTime).toBe(15);
+  });
+
+  it('前週のデータが存在しない場合、nullを返す', () => {
+    const mockSheet = createMockSheet();
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => mockSheet),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    // テストデータを設定（1週間分のデータのみ）
+    const currentWeekStart = new Date('2026-01-08');
+    const mockData = [
+      ['週開始日', '週終了日', 'Note記事数', 'WordPress記事数', 'GASテンプレート数', 'Note有料記事収益', 'WordPressアフィリエイト収益', 'GAS販売収益', '今週の合計収益', '累計収益', '目標までの残り', '作業時間'],
+      [currentWeekStart, '2026-01-14', 3, 3, 1, 8000, 12000, 0, 20000, 70000, 10000, 18],
+    ];
+    
+    (mockSheet.getDataRange as any).mockReturnValue({
+      getValues: () => mockData,
+    });
+    
+    const result = gasFunctions.getPreviousWeekData(mockSpreadsheet, currentWeekStart);
+    
+    expect(result).toBeNull();
+  });
+
+  it('シートが存在しない場合、nullを返す', () => {
+    const mockSpreadsheet = {
+      getSheetByName: vi.fn(() => null),
+    };
+    
+    SpreadsheetApp.getActiveSpreadsheet = vi.fn(() => mockSpreadsheet as any);
+    
+    const result = gasFunctions.getPreviousWeekData(mockSpreadsheet, new Date('2026-01-08'));
+    
+    expect(result).toBeNull();
+  });
+});
+
+describe('compareWithPreviousWeek', () => {
+  it('前週のデータがある場合、増減率を正しく計算する', () => {
+    const currentWeekData = {
+      noteArticles: 3,
+      wpArticles: 3,
+      gasTemplates: 1,
+      totalRevenue: 20000,
+      workTime: 18,
+    };
+
+    const previousWeekData = {
+      noteArticles: 2,
+      wpArticles: 2,
+      gasTemplates: 0,
+      totalRevenue: 15000,
+      workTime: 15,
+    };
+
+    const result = gasFunctions.compareWithPreviousWeek(currentWeekData, previousWeekData);
+
+    expect(result.hasPreviousData).toBe(true);
+    expect(result.noteArticlesChange).toBe(50); // (3-2)/2*100 = 50%
+    expect(result.wpArticlesChange).toBe(50); // (3-2)/2*100 = 50%
+    expect(result.gasTemplatesChange).toBe(100); // (1-0)/0*100 = 100% (前週が0の場合)
+    expect(result.revenueChange).toBeCloseTo(33.33, 2); // (20000-15000)/15000*100 ≈ 33.33%
+    expect(result.workTimeChange).toBe(20); // (18-15)/15*100 = 20%
+  });
+
+  it('前週のデータがない場合、すべて0を返す', () => {
+    const currentWeekData = {
+      noteArticles: 3,
+      wpArticles: 3,
+      gasTemplates: 1,
+      totalRevenue: 20000,
+      workTime: 18,
+    };
+
+    const result = gasFunctions.compareWithPreviousWeek(currentWeekData, null);
+
+    expect(result.hasPreviousData).toBe(false);
+    expect(result.noteArticlesChange).toBe(0);
+    expect(result.wpArticlesChange).toBe(0);
+    expect(result.gasTemplatesChange).toBe(0);
+    expect(result.revenueChange).toBe(0);
+    expect(result.workTimeChange).toBe(0);
+  });
+
+  it('前週より減少した場合、負の値を返す', () => {
+    const currentWeekData = {
+      noteArticles: 1,
+      wpArticles: 1,
+      gasTemplates: 0,
+      totalRevenue: 10000,
+      workTime: 10,
+    };
+
+    const previousWeekData = {
+      noteArticles: 2,
+      wpArticles: 2,
+      gasTemplates: 1,
+      totalRevenue: 15000,
+      workTime: 15,
+    };
+
+    const result = gasFunctions.compareWithPreviousWeek(currentWeekData, previousWeekData);
+
+    expect(result.hasPreviousData).toBe(true);
+    expect(result.noteArticlesChange).toBe(-50); // (1-2)/2*100 = -50%
+    expect(result.wpArticlesChange).toBe(-50); // (1-2)/2*100 = -50%
+    expect(result.revenueChange).toBeCloseTo(-33.33, 2); // (10000-15000)/15000*100 ≈ -33.33%
+    expect(result.workTimeChange).toBeCloseTo(-33.33, 2); // (10-15)/15*100 ≈ -33.33%
   });
 });
 

@@ -27,19 +27,25 @@ const TARGET_REVENUE = 80000; // 目標収益（8万円）
 function runWeeklyReview() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    
+
     // 1. 週次データを集計
     const weeklyData = aggregateWeeklyData(spreadsheet);
-    
-    // 2. 週次集計シートに出力
+
+    // 2. 前週のデータを取得
+    const previousWeekData = getPreviousWeekData(spreadsheet, weeklyData.weekStart);
+
+    // 3. 前週との比較データを計算
+    const comparisonData = compareWithPreviousWeek(weeklyData, previousWeekData);
+
+    // 4. 週次集計シートに出力
     outputWeeklySummary(spreadsheet, weeklyData);
-    
-    // 3. レポートを生成
-    generateReport(spreadsheet, weeklyData);
-    
-    // 4. 来週の計画テンプレートを生成
+
+    // 5. レポートを生成（前週比を含む）
+    generateReport(spreadsheet, weeklyData, comparisonData);
+
+    // 6. 来週の計画テンプレートを生成
     generateNextWeekPlan(spreadsheet, weeklyData);
-    
+
     Logger.log('週次レビューが完了しました');
     SpreadsheetApp.getUi().alert('週次レビューが完了しました！');
   } catch (error) {
@@ -60,10 +66,10 @@ function aggregateWeeklyData(spreadsheet) {
   if (!dailySheet) {
     throw new Error('日次データ入力シートが見つかりません');
   }
-  
+
   const data = dailySheet.getDataRange().getValues();
   const headers = data[0];
-  
+
   // ヘッダーのインデックスを取得
   const dateIndex = headers.indexOf('日付');
   const noteArticleIndex = headers.indexOf('Note記事');
@@ -73,7 +79,7 @@ function aggregateWeeklyData(spreadsheet) {
   const wpRevenueIndex = headers.indexOf('WordPressアフィリエイト収益');
   const gasRevenueIndex = headers.indexOf('GAS販売収益');
   const workTimeIndex = headers.indexOf('作業時間');
-  
+
   // 今週の日付範囲を取得（月曜日〜日曜日）
   const today = new Date();
   const dayOfWeek = today.getDay(); // 0=日曜日, 1=月曜日, ..., 6=土曜日
@@ -81,7 +87,7 @@ function aggregateWeeklyData(spreadsheet) {
   monday.setDate(today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)); // 今週の月曜日
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6); // 今週の日曜日
-  
+
   // 今週のデータを集計
   let noteArticles = 0;
   let wpArticles = 0;
@@ -90,11 +96,11 @@ function aggregateWeeklyData(spreadsheet) {
   let wpRevenue = 0;
   let gasRevenue = 0;
   let workTime = 0;
-  
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const rowDate = new Date(row[dateIndex]);
-    
+
     // 今週のデータかチェック
     if (rowDate >= monday && rowDate <= sunday) {
       noteArticles += row[noteArticleIndex] || 0;
@@ -106,13 +112,13 @@ function aggregateWeeklyData(spreadsheet) {
       workTime += row[workTimeIndex] || 0;
     }
   }
-  
+
   const totalRevenue = noteRevenue + wpRevenue + gasRevenue;
-  
+
   // 累計収益を取得（前週までの累計 + 今週の収益）
   const cumulativeRevenue = getCumulativeRevenue(spreadsheet) + totalRevenue;
   const remainingRevenue = TARGET_REVENUE - cumulativeRevenue;
-  
+
   return {
     weekStart: monday,
     weekEnd: sunday,
@@ -139,19 +145,19 @@ function getCumulativeRevenue(spreadsheet) {
   if (!summarySheet) {
     return 0;
   }
-  
+
   const data = summarySheet.getDataRange().getValues();
   if (data.length <= 1) {
     return 0;
   }
-  
+
   // 最後の行の累計収益を取得
   const headers = data[0];
   const cumulativeIndex = headers.indexOf('累計収益');
   if (cumulativeIndex === -1) {
     return 0;
   }
-  
+
   const lastRow = data[data.length - 1];
   return lastRow[cumulativeIndex] || 0;
 }
@@ -165,7 +171,7 @@ function getCumulativeRevenue(spreadsheet) {
  */
 function outputWeeklySummary(spreadsheet, weeklyData) {
   let summarySheet = spreadsheet.getSheetByName(SHEET_NAMES.WEEKLY_SUMMARY);
-  
+
   // シートが存在しない場合は作成
   if (!summarySheet) {
     summarySheet = spreadsheet.insertSheet(SHEET_NAMES.WEEKLY_SUMMARY);
@@ -180,7 +186,7 @@ function outputWeeklySummary(spreadsheet, weeklyData) {
     summarySheet.getRange(1, 1, 1, 12).setBackground('#4285f4');
     summarySheet.getRange(1, 1, 1, 12).setFontColor('#ffffff');
   }
-  
+
   // データを追加
   const row = [
     Utilities.formatDate(weeklyData.weekStart, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
@@ -196,9 +202,9 @@ function outputWeeklySummary(spreadsheet, weeklyData) {
     weeklyData.remainingRevenue,
     weeklyData.workTime
   ];
-  
+
   summarySheet.appendRow(row);
-  
+
   // 列幅を自動調整
   summarySheet.autoResizeColumns(1, 12);
 }
@@ -209,10 +215,11 @@ function outputWeeklySummary(spreadsheet, weeklyData) {
  * レポートを生成
  * @param {Spreadsheet} spreadsheet - スプレッドシートオブジェクト
  * @param {Object} weeklyData - 週次データ
+ * @param {Object} comparisonData - 前週との比較データ（オプション）
  */
-function generateReport(spreadsheet, weeklyData) {
+function generateReport(spreadsheet, weeklyData, comparisonData = null) {
   let reportSheet = spreadsheet.getSheetByName(SHEET_NAMES.REPORT);
-  
+
   // シートが存在しない場合は作成
   if (!reportSheet) {
     reportSheet = spreadsheet.insertSheet(SHEET_NAMES.REPORT);
@@ -220,7 +227,7 @@ function generateReport(spreadsheet, weeklyData) {
     // 既存のシートをクリア
     reportSheet.clear();
   }
-  
+
   // レポートを生成
   const report = [
     ['週次レビューレポート'],
@@ -230,21 +237,21 @@ function generateReport(spreadsheet, weeklyData) {
     ['## 今週の成果サマリー'],
     [''],
     ['記事数:'],
-    ['  - Note記事: ' + weeklyData.noteArticles + '本'],
-    ['  - WordPress記事: ' + weeklyData.wpArticles + '本'],
-    ['  - GASテンプレート: ' + weeklyData.gasTemplates + '個'],
+    ['  - Note記事: ' + weeklyData.noteArticles + '本' + (comparisonData && comparisonData.hasPreviousData ? ' (前週比: ' + formatChangeRate(comparisonData.noteArticlesChange) + ')' : '')],
+    ['  - WordPress記事: ' + weeklyData.wpArticles + '本' + (comparisonData && comparisonData.hasPreviousData ? ' (前週比: ' + formatChangeRate(comparisonData.wpArticlesChange) + ')' : '')],
+    ['  - GASテンプレート: ' + weeklyData.gasTemplates + '個' + (comparisonData && comparisonData.hasPreviousData ? ' (前週比: ' + formatChangeRate(comparisonData.gasTemplatesChange) + ')' : '')],
     [''],
     ['収益:'],
     ['  - Note有料記事: ' + weeklyData.noteRevenue.toLocaleString() + '円'],
     ['  - WordPressアフィリエイト: ' + weeklyData.wpRevenue.toLocaleString() + '円'],
     ['  - GAS販売: ' + weeklyData.gasRevenue.toLocaleString() + '円'],
-    ['  - 今週の合計: ' + weeklyData.totalRevenue.toLocaleString() + '円'],
+    ['  - 今週の合計: ' + weeklyData.totalRevenue.toLocaleString() + '円' + (comparisonData && comparisonData.hasPreviousData ? ' (前週比: ' + formatChangeRate(comparisonData.revenueChange) + ')' : '')],
     [''],
     ['累計収益: ' + weeklyData.cumulativeRevenue.toLocaleString() + '円'],
     ['目標までの残り: ' + weeklyData.remainingRevenue.toLocaleString() + '円'],
     ['目標達成率: ' + calculateAchievementRate(weeklyData.cumulativeRevenue, TARGET_REVENUE) + '%'],
     [''],
-    ['作業時間: ' + weeklyData.workTime + '時間'],
+    ['作業時間: ' + weeklyData.workTime + '時間' + (comparisonData && comparisonData.hasPreviousData ? ' (前週比: ' + formatChangeRate(comparisonData.workTimeChange) + ')' : '')],
     [''],
     ['## 改善点'],
     [''],
@@ -252,14 +259,135 @@ function generateReport(spreadsheet, weeklyData) {
     ['- [ ] テンプレート化できる部分を確認'],
     ['- [ ] 自動化できる部分を確認']
   ];
-  
+
   reportSheet.getRange(1, 1, report.length, 1).setValues(report.map(row => [row[0]]));
-  
+
   // タイトルの書式設定
   reportSheet.getRange(1, 1).setFontSize(16).setFontWeight('bold');
-  
+
   // 列幅を自動調整
   reportSheet.autoResizeColumn(1);
+}
+
+// ===== 前週との比較 =====
+
+/**
+ * 前週のデータを取得
+ * @param {Spreadsheet} spreadsheet - スプレッドシートオブジェクト
+ * @param {Date} currentWeekStart - 今週の開始日（月曜日）
+ * @return {Object|null} 前週のデータ（存在しない場合はnull）
+ */
+function getPreviousWeekData(spreadsheet, currentWeekStart) {
+  const summarySheet = spreadsheet.getSheetByName(SHEET_NAMES.WEEKLY_SUMMARY);
+  if (!summarySheet) {
+    return null;
+  }
+
+  const data = summarySheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return null; // ヘッダーのみ
+  }
+
+  // 前週の開始日を計算（今週の開始日から7日前）
+  const previousWeekStart = new Date(currentWeekStart);
+  previousWeekStart.setDate(currentWeekStart.getDate() - 7);
+
+  // ヘッダーのインデックスを取得
+  const headers = data[0];
+  const weekStartIndex = headers.indexOf('週開始日');
+  const noteArticlesIndex = headers.indexOf('Note記事数');
+  const wpArticlesIndex = headers.indexOf('WordPress記事数');
+  const gasTemplatesIndex = headers.indexOf('GASテンプレート数');
+  const noteRevenueIndex = headers.indexOf('Note有料記事収益');
+  const wpRevenueIndex = headers.indexOf('WordPressアフィリエイト収益');
+  const gasRevenueIndex = headers.indexOf('GAS販売収益');
+  const totalRevenueIndex = headers.indexOf('今週の合計収益');
+  const workTimeIndex = headers.indexOf('作業時間');
+
+  // 前週のデータを検索（最後の行から逆順に検索）
+  for (let i = data.length - 1; i >= 1; i--) {
+    const row = data[i];
+    const rowDateStr = row[weekStartIndex];
+
+    if (!rowDateStr) continue;
+
+    const rowDate = new Date(rowDateStr);
+    // 日付を比較（時刻部分を無視）
+    if (rowDate.getTime() === previousWeekStart.getTime()) {
+      return {
+        weekStart: rowDate,
+        noteArticles: row[noteArticlesIndex] || 0,
+        wpArticles: row[wpArticlesIndex] || 0,
+        gasTemplates: row[gasTemplatesIndex] || 0,
+        noteRevenue: row[noteRevenueIndex] || 0,
+        wpRevenue: row[wpRevenueIndex] || 0,
+        gasRevenue: row[gasRevenueIndex] || 0,
+        totalRevenue: row[totalRevenueIndex] || 0,
+        workTime: row[workTimeIndex] || 0,
+      };
+    }
+  }
+
+  return null; // 前週のデータが見つからない
+}
+
+/**
+ * 増減率を計算
+ * @param {number} current - 今週の値
+ * @param {number} previous - 前週の値
+ * @return {number} 増減率（パーセンテージ、前週が0の場合は0を返す）
+ */
+function calculateChangeRate(current, previous) {
+  if (previous === 0) {
+    // 前週が0の場合、今週が0より大きければ100%増加、0なら0%を返す
+    return current > 0 ? 100 : 0;
+  }
+  const rate = ((current - previous) / previous) * 100;
+  return Math.round(rate * 100) / 100; // 小数点第2位まで
+}
+
+/**
+ * 増減率をフォーマット（+記号を付ける）
+ * @param {number} changeRate - 増減率
+ * @return {string} フォーマットされた増減率（例: "+10%", "-5%", "0%"）
+ */
+function formatChangeRate(changeRate) {
+  if (changeRate > 0) {
+    return '+' + changeRate + '%';
+  } else if (changeRate < 0) {
+    return changeRate + '%';
+  } else {
+    return '0%';
+  }
+}
+
+/**
+ * 前週との比較データを計算
+ * @param {Object} currentWeekData - 今週のデータ
+ * @param {Object|null} previousWeekData - 前週のデータ（存在しない場合はnull）
+ * @return {Object} 比較データ（増減率など）
+ */
+function compareWithPreviousWeek(currentWeekData, previousWeekData) {
+  if (!previousWeekData) {
+    // 前週のデータが存在しない場合
+    return {
+      hasPreviousData: false,
+      noteArticlesChange: 0,
+      wpArticlesChange: 0,
+      gasTemplatesChange: 0,
+      revenueChange: 0,
+      workTimeChange: 0,
+    };
+  }
+
+  return {
+    hasPreviousData: true,
+    noteArticlesChange: calculateChangeRate(currentWeekData.noteArticles, previousWeekData.noteArticles),
+    wpArticlesChange: calculateChangeRate(currentWeekData.wpArticles, previousWeekData.wpArticles),
+    gasTemplatesChange: calculateChangeRate(currentWeekData.gasTemplates, previousWeekData.gasTemplates),
+    revenueChange: calculateChangeRate(currentWeekData.totalRevenue, previousWeekData.totalRevenue),
+    workTimeChange: calculateChangeRate(currentWeekData.workTime, previousWeekData.workTime),
+  };
 }
 
 // ===== 目標達成率の計算 =====
@@ -302,7 +430,7 @@ function calculateWeeklyAchievementRates(weeklyData, weeklyTargets) {
  */
 function generateNextWeekPlan(spreadsheet, weeklyData) {
   let planSheet = spreadsheet.getSheetByName(SHEET_NAMES.NEXT_WEEK_PLAN);
-  
+
   // シートが存在しない場合は作成
   if (!planSheet) {
     planSheet = spreadsheet.insertSheet(SHEET_NAMES.NEXT_WEEK_PLAN);
@@ -310,18 +438,18 @@ function generateNextWeekPlan(spreadsheet, weeklyData) {
     // 既存のシートをクリア
     planSheet.clear();
   }
-  
+
   // 来週の日付範囲を計算
   const nextMonday = new Date(weeklyData.weekEnd);
   nextMonday.setDate(weeklyData.weekEnd.getDate() + 1);
   const nextSunday = new Date(nextMonday);
   nextSunday.setDate(nextMonday.getDate() + 6);
-  
+
   // 来週の目標を算出（今週の実績をベースに）
   const targetNoteArticles = Math.max(weeklyData.noteArticles, 2);
   const targetWpArticles = Math.max(weeklyData.wpArticles, 2);
   const targetRevenue = Math.max(weeklyData.totalRevenue, 15000);
-  
+
   // 計画テンプレートを生成
   const plan = [
     ['来週の計画'],
@@ -352,12 +480,12 @@ function generateNextWeekPlan(spreadsheet, weeklyData) {
     [''],
     ['収益目標: ' + targetRevenue.toLocaleString() + '円']
   ];
-  
+
   planSheet.getRange(1, 1, plan.length, 1).setValues(plan.map(row => [row[0]]));
-  
+
   // タイトルの書式設定
   planSheet.getRange(1, 1).setFontSize(16).setFontWeight('bold');
-  
+
   // 列幅を自動調整
   planSheet.autoResizeColumn(1);
 }
@@ -373,7 +501,11 @@ if (typeof module !== 'undefined' && module.exports) {
     generateReport,
     generateNextWeekPlan,
     calculateAchievementRate,
-    calculateWeeklyAchievementRates
+    calculateWeeklyAchievementRates,
+    getPreviousWeekData,
+    calculateChangeRate,
+    formatChangeRate,
+    compareWithPreviousWeek
   };
 }
 

@@ -224,3 +224,112 @@ describe('generateNextWeekPlan', () => {
   });
 });
 
+describe('calculateAchievementRate', () => {
+  it('目標を達成した場合、100%以上を返す', () => {
+    expect(gasFunctions.calculateAchievementRate(100, 80)).toBe(125);
+    expect(gasFunctions.calculateAchievementRate(160, 100)).toBe(160);
+  });
+
+  it('目標未達成の場合、100%未満を返す', () => {
+    expect(gasFunctions.calculateAchievementRate(50, 100)).toBe(50);
+    expect(gasFunctions.calculateAchievementRate(75, 100)).toBe(75);
+  });
+
+  it('目標をちょうど達成した場合、100%を返す', () => {
+    expect(gasFunctions.calculateAchievementRate(100, 100)).toBe(100);
+    expect(gasFunctions.calculateAchievementRate(80, 80)).toBe(100);
+  });
+
+  it('目標が0の場合、0を返す', () => {
+    expect(gasFunctions.calculateAchievementRate(100, 0)).toBe(0);
+    expect(gasFunctions.calculateAchievementRate(0, 0)).toBe(0);
+  });
+
+  it('実績が0の場合、0%を返す', () => {
+    expect(gasFunctions.calculateAchievementRate(0, 100)).toBe(0);
+    expect(gasFunctions.calculateAchievementRate(0, 50)).toBe(0);
+  });
+
+  it('小数点第2位まで正確に計算する', () => {
+    expect(gasFunctions.calculateAchievementRate(33, 100)).toBe(33);
+    expect(gasFunctions.calculateAchievementRate(66, 100)).toBe(66);
+    expect(gasFunctions.calculateAchievementRate(33.33, 100)).toBe(33.33);
+  });
+
+  it('負の値も正しく処理する', () => {
+    expect(gasFunctions.calculateAchievementRate(-50, 100)).toBe(-50);
+    expect(gasFunctions.calculateAchievementRate(50, -100)).toBe(-50);
+  });
+});
+
+describe('calculateWeeklyAchievementRates', () => {
+  it('週次目標に対する達成率を正しく計算する', () => {
+    const weeklyData = {
+      noteArticles: 2,
+      wpArticles: 2,
+      totalRevenue: 15000,
+      workTime: 15,
+    };
+
+    const weeklyTargets = {
+      noteArticles: 2,
+      wpArticles: 2,
+      revenue: 20000,
+      workTime: 20,
+    };
+
+    const result = gasFunctions.calculateWeeklyAchievementRates(weeklyData, weeklyTargets);
+
+    expect(result.noteArticlesRate).toBe(100); // 2/2 = 100%
+    expect(result.wpArticlesRate).toBe(100); // 2/2 = 100%
+    expect(result.revenueRate).toBe(75); // 15000/20000 = 75%
+    expect(result.workTimeRate).toBe(75); // 15/20 = 75%
+  });
+
+  it('目標が設定されていない場合、0%を返す', () => {
+    const weeklyData = {
+      noteArticles: 2,
+      wpArticles: 2,
+      totalRevenue: 15000,
+      workTime: 15,
+    };
+
+    const weeklyTargets = {
+      noteArticles: 0,
+      wpArticles: 0,
+      revenue: 0,
+      workTime: 0,
+    };
+
+    const result = gasFunctions.calculateWeeklyAchievementRates(weeklyData, weeklyTargets);
+
+    expect(result.noteArticlesRate).toBe(0);
+    expect(result.wpArticlesRate).toBe(0);
+    expect(result.revenueRate).toBe(0);
+    expect(result.workTimeRate).toBe(0);
+  });
+
+  it('一部の目標が設定されていない場合、該当項目のみ0%を返す', () => {
+    const weeklyData = {
+      noteArticles: 2,
+      wpArticles: 2,
+      totalRevenue: 15000,
+      workTime: 15,
+    };
+
+    const weeklyTargets = {
+      noteArticles: 2,
+      wpArticles: 0, // 目標未設定
+      revenue: 20000,
+      workTime: 0, // 目標未設定
+    };
+
+    const result = gasFunctions.calculateWeeklyAchievementRates(weeklyData, weeklyTargets);
+
+    expect(result.noteArticlesRate).toBe(100);
+    expect(result.wpArticlesRate).toBe(0); // 目標未設定
+    expect(result.revenueRate).toBe(75);
+    expect(result.workTimeRate).toBe(0); // 目標未設定
+  });
+});
+

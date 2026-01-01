@@ -242,6 +242,7 @@ function generateReport(spreadsheet, weeklyData) {
     [''],
     ['累計収益: ' + weeklyData.cumulativeRevenue.toLocaleString() + '円'],
     ['目標までの残り: ' + weeklyData.remainingRevenue.toLocaleString() + '円'],
+    ['目標達成率: ' + calculateAchievementRate(weeklyData.cumulativeRevenue, TARGET_REVENUE) + '%'],
     [''],
     ['作業時間: ' + weeklyData.workTime + '時間'],
     [''],
@@ -259,6 +260,37 @@ function generateReport(spreadsheet, weeklyData) {
   
   // 列幅を自動調整
   reportSheet.autoResizeColumn(1);
+}
+
+// ===== 目標達成率の計算 =====
+
+/**
+ * 目標達成率を計算
+ * @param {number} actual - 実績値
+ * @param {number} target - 目標値
+ * @return {number} 達成率（0-100、目標が0の場合は0を返す）
+ */
+function calculateAchievementRate(actual, target) {
+  if (target === 0) {
+    return 0;
+  }
+  const rate = (actual / target) * 100;
+  return Math.round(rate * 100) / 100; // 小数点第2位まで
+}
+
+/**
+ * 週次目標に対する達成率を計算
+ * @param {Object} weeklyData - 週次データ
+ * @param {Object} weeklyTargets - 週次目標（記事数、収益など）
+ * @return {Object} 達成率データ
+ */
+function calculateWeeklyAchievementRates(weeklyData, weeklyTargets) {
+  return {
+    noteArticlesRate: calculateAchievementRate(weeklyData.noteArticles, weeklyTargets.noteArticles || 0),
+    wpArticlesRate: calculateAchievementRate(weeklyData.wpArticles, weeklyTargets.wpArticles || 0),
+    revenueRate: calculateAchievementRate(weeklyData.totalRevenue, weeklyTargets.revenue || 0),
+    workTimeRate: calculateAchievementRate(weeklyData.workTime, weeklyTargets.workTime || 0),
+  };
 }
 
 // ===== 来週の計画テンプレート生成 =====
@@ -339,7 +371,9 @@ if (typeof module !== 'undefined' && module.exports) {
     getCumulativeRevenue,
     outputWeeklySummary,
     generateReport,
-    generateNextWeekPlan
+    generateNextWeekPlan,
+    calculateAchievementRate,
+    calculateWeeklyAchievementRates
   };
 }
 
